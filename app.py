@@ -20,3 +20,5 @@ with st.form("form_producto"):
         insertar_producto(nombre, stock, precio)
         st.success(f"Producto {nombre} agregado correctamente.")
         # Para que el usuario vea el cambio, recargá la página manualmente.
+
+st.write("AAAAAAA")
