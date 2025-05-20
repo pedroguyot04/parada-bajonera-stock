@@ -1,0 +1,4 @@
+/* styles.css */
+[data-testid="stAppViewContainer"] {
+    background-color: green;
+}

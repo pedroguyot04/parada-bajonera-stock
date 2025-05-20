@@ -9,7 +9,10 @@ from db import (
     eliminar_producto,
 )
 from datetime import date
-import pandas as pd
+
+# Cargar y aplicar estilos CSS
+with open("styles.css") as f:
+    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
 create_tables()
 
@@ -20,28 +23,23 @@ if 'ultimo_movimiento' not in st.session_state:
     st.session_state['ultimo_movimiento'] = None
 
 # Función para guardar movimiento
-def guardar_movimiento(producto_id, cantidad):
+def guardar_movimiento(producto_id, cantidad, fue_creado=False, fue_eliminado=False):
     st.session_state['ultimo_movimiento'] = {
         'producto_id': producto_id,
-        'cantidad': cantidad
+        'cantidad': cantidad,
+        'fue_creado': fue_creado,
+        'fue_eliminado': fue_eliminado
     }
 
-# Función para deshacer último movimiento (incluye creación y eliminación)
+# Función para deshacer último movimiento
 def deshacer_ultimo_movimiento():
     mov = st.session_state['ultimo_movimiento']
     if mov:
-        tipo = mov.get('tipo', 'stock')
-        if tipo == 'eliminacion':
-            insertar_producto(
-                mov['nombre'],
-                mov['cantidad'],
-                mov['precio'],
-                mov['fecha_reposicion']
-            )
-            st.success(f"Se revirtió eliminación del producto '{mov['nombre']}'")
-        elif tipo == 'creacion':
+        if mov.get("fue_eliminado"):
+            st.warning("No se puede deshacer la eliminación de productos todavía.")
+        elif mov.get("fue_creado"):
             eliminar_producto(mov['producto_id'])
-            st.success(f"Se revirtió creación del producto '{mov['nombre']}'")
+            st.success("Se eliminó el producto recientemente creado.")
         else:
             actualizar_stock(mov['producto_id'], -mov['cantidad'])
             st.success("Último movimiento deshecho correctamente.")
@@ -49,7 +47,7 @@ def deshacer_ultimo_movimiento():
     else:
         st.info("No hay movimientos para deshacer.")
 
-# ENTRADA DE STOCK
+# ENTRADA DE STOCK (nuevo + reposición)
 st.subheader("ENTRADA DE STOCK")
 
 productos = get_productos()
@@ -89,15 +87,9 @@ if st.session_state['producto_seleccionado']:
             submit_nuevo = st.form_submit_button("Crear producto")
             if submit_nuevo:
                 insertar_producto(prod_name, cantidad, precio, fecha_reposicion)
-                prod_id = next(p[0] for p in get_productos() if p[1] == prod_name)
-                st.session_state['ultimo_movimiento'] = {
-                    'tipo': 'creacion',
-                    'producto_id': prod_id,
-                    'nombre': prod_name,
-                    'cantidad': cantidad,
-                    'precio': precio,
-                    'fecha_reposicion': fecha_reposicion
-                }
+                nuevo_prod = get_productos()
+                prod_id = next(p[0] for p in nuevo_prod if p[1] == prod_name)
+                guardar_movimiento(prod_id, cantidad, fue_creado=True)
                 st.success(f"Producto '{prod_name}' creado con {cantidad} unidades.")
                 st.session_state['producto_seleccionado'] = None
 
@@ -131,16 +123,8 @@ if productos:
     producto_eliminar = st.selectbox("Seleccioná el producto a eliminar", list(opciones.keys()))
     if st.button("Eliminar producto seleccionado"):
         prod_id = opciones[producto_eliminar]
-        prod = next(p for p in productos if p[0] == prod_id)
-        st.session_state['ultimo_movimiento'] = {
-            'tipo': 'eliminacion',
-            'producto_id': prod_id,
-            'nombre': prod[1],
-            'cantidad': prod[2],
-            'precio': prod[3],
-            'fecha_reposicion': prod[4],
-        }
         eliminar_producto(prod_id)
+        guardar_movimiento(prod_id, 0, fue_eliminado=True)
         st.success(f"Producto '{producto_eliminar}' eliminado correctamente.")
 else:
     st.info("No hay productos para eliminar.")
@@ -149,9 +133,18 @@ else:
 if st.button("Deshacer último movimiento"):
     deshacer_ultimo_movimiento()
 
-# Tabla de productos sin la columna ID
-st.write("### Productos y stock actuales:")
+# Actualizar productos
 productos = get_productos()
+
+# MÉTRICAS
+if productos:
+    costo_total = sum([p[2] * p[3] for p in productos if p[2] and p[3]])
+    total_unidades = sum([p[2] for p in productos if p[2]])
+    st.metric("Costo total actual en stock ($)", f"{costo_total:,.2f}")
+    st.metric("Total de unidades en stock", f"{total_unidades}")
+
+# TABLA
+st.write("### Productos y stock actuales:")
 if productos:
     data = {
         "Nombre": [p[1] for p in productos],
@@ -159,7 +152,6 @@ if productos:
         "Precio ($)": [p[3] for p in productos],
         "Última Reposición": [p[4] for p in productos],
     }
-    df = pd.DataFrame(data)
-    st.dataframe(df)
+    st.dataframe(data)
 else:
     st.info("No hay productos cargados.")
