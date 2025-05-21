@@ -18,6 +18,14 @@ from db import (
     eliminar_gasto_fijo
 )
 
+#Import ingresos
+from db import (
+    get_ingresos,
+    editar_ingreso,
+    eliminar_ingreso,
+    insertar_ingreso_manual
+)
+
 import pandas as pd
 import time
 from datetime import date
@@ -37,6 +45,8 @@ st.write("---")
 st.header("STOCK")
 
 # Inicializar en sesión
+if 'producto_editando' not in st.session_state:
+    st.session_state['producto_editando'] = None
 if 'ultimo_movimiento' not in st.session_state:
     st.session_state['ultimo_movimiento'] = None
 
@@ -75,7 +85,7 @@ with st.expander("Agregar nuevo producto"):
                 st.success(f"Producto '{nombre.strip()}' agregado.")
                 recargar_app()
 
-# --- MOSTRAR PRODUCTOS Y BOTONES EDITAR/ELIMINAR ---
+# --- MOSTRAR TABLA Y FORMULARIOS DE EDICIÓN/ELIMINACIÓN ---
 if productos:
     import pandas as pd
 
@@ -86,54 +96,45 @@ if productos:
 
     st.dataframe(df_display[["Nombre", "Stock", "Precio", "Última Reposición"]], height=300)
 
-    if 'producto_editando' not in st.session_state:
-        st.session_state['producto_editando'] = None
+    with st.expander("Editar o eliminar un producto"):
+        opciones = {row['Nombre']: row['ID'] for _, row in df_prod.iterrows()}
+        seleccionado = st.selectbox("Seleccioná un producto", [""] + list(opciones.keys()))
 
-    for idx, prod in df_prod.iterrows():
-        cols = st.columns([4, 1, 1])
-        cols[0].write(f"{prod['Nombre']} (Stock: {prod['Stock']})")
-        if cols[1].button("Editar", key=f"editar_prod_{prod['ID']}"):
-            st.session_state['producto_editando'] = prod.to_dict()
-            recargar_app()
-        if cols[2].button("Eliminar", key=f"eliminar_prod_{prod['ID']}"):
-            eliminar_producto(prod["ID"])
-            st.success(f"Producto '{prod['Nombre']}' eliminado.")
-            recargar_app()
+        if seleccionado:
+            id_sel = opciones[seleccionado]
+            producto_sel = df_prod[df_prod["ID"] == id_sel].iloc[0]
 
-    # Formulario edición producto
-    if st.session_state['producto_editando']:
-        prod = st.session_state['producto_editando']
+            def parse_fecha(fecha_str):
+                try:
+                    return date.fromisoformat(str(fecha_str))
+                except:
+                    return date.today()
 
-        def parse_fecha_prod(fecha_str):
-            try:
-                return date.fromisoformat(fecha_str)
-            except:
-                return date.today()
+            with st.form("form_editar_eliminar"):
+                nombre_edit = st.text_input("Nombre", value=producto_sel["Nombre"])
+                stock_edit = st.number_input("Stock", min_value=0, step=1, value=producto_sel["Stock"])
+                precio_edit = st.number_input("Precio unitario ($)", min_value=0.0, step=0.01, value=producto_sel["Precio"], format="%.2f")
+                fecha_edit = st.date_input("Última reposición", value=parse_fecha(producto_sel["Última Reposición"]))
 
-        st.write("---")
-        st.subheader(f"Editar producto")
+                col_ed, col_el = st.columns(2)
+                submit_editar = col_ed.form_submit_button("Guardar cambios")
+                submit_eliminar = col_el.form_submit_button("Eliminar producto")
 
-        with st.form("form_editar_producto"):
-            nombre_edit = st.text_input("Nombre", value=prod['Nombre'])
-            stock_edit = st.number_input("Stock", min_value=0, step=1, value=prod['Stock'])
-            precio_edit = st.number_input("Precio unitario ($)", min_value=0.0, step=0.01, value=prod['Precio'], format="%.2f")
-            fecha_edit = st.date_input("Última reposición", value=parse_fecha_prod(prod['Última Reposición']))
+                if submit_editar:
+                    if not nombre_edit.strip():
+                        st.error("El nombre no puede estar vacío.")
+                    else:
+                        editar_producto(id_sel, nombre_edit.strip(), stock_edit, precio_edit, fecha_edit)
+                        st.success(f"Producto '{nombre_edit.strip()}' actualizado.")
+                        recargar_app()
 
-            submit_editar_prod = st.form_submit_button("Guardar cambios")
-            if submit_editar_prod:
-                if not nombre_edit.strip():
-                    st.error("El nombre no puede estar vacío.")
-                else:
-                    editar_producto(prod['ID'], nombre_edit.strip(), stock_edit, precio_edit, fecha_edit)
-                    st.success(f"Producto '{nombre_edit.strip()}' actualizado.")
-                    st.session_state['producto_editando'] = None
+                if submit_eliminar:
+                    eliminar_producto(id_sel)
+                    st.success(f"Producto '{producto_sel['Nombre']}' eliminado.")
                     recargar_app()
 
 else:
     st.info("No hay productos registrados.")
-
-
-
 
 
 #----------------------------------------------------------   ARRANCA SECCION COSTOS   ----------------------------------------------------------
@@ -176,48 +177,126 @@ if gastos:
 
     st.dataframe(df_display[["Mes", "Concepto", "Monto", "Fecha Vencimiento", "Fecha Pago"]], height=300)
 
-    if 'gasto_editando' not in st.session_state:
-        st.session_state['gasto_editando'] = None
+    # Estado para formulario activo
+    if 'gasto_seleccionado' not in st.session_state:
+        st.session_state['gasto_seleccionado'] = None
 
-    # Mostrar botones para editar y eliminar por cada gasto (fuera del dataframe)
-    for idx, gasto in df.iterrows():
-        cols = st.columns([4,1,1])
-        cols[0].write(f"{gasto['Concepto']} ({gasto['Mes']})")
-        if cols[1].button("Editar", key=f"editar_{gasto['ID']}"):
-            st.session_state['gasto_editando'] = gasto.to_dict()
-        if cols[2].button("Eliminar", key=f"eliminar_{gasto['ID']}"):
-            eliminar_gasto_fijo(gasto["ID"])
-            st.success(f"Gasto '{gasto['Concepto']}' eliminado.")
-            st.rerun()
+    with st.expander("Editar o eliminar un gasto fijo"):
+        opciones_gastos = {f"{row['Concepto']} ({row['Mes']})": row['ID'] for _, row in df.iterrows()}
+        seleccionado = st.selectbox("Seleccioná un gasto fijo", [""] + list(opciones_gastos.keys()))
 
-    # Formulario simple de edición igual al de producto
-    if st.session_state['gasto_editando']:
-        gasto = st.session_state['gasto_editando']
+        if seleccionado:
+            st.session_state['gasto_seleccionado'] = opciones_gastos[seleccionado]
+
+    if st.session_state['gasto_seleccionado']:
+        gasto_sel = df[df["ID"] == st.session_state['gasto_seleccionado']].iloc[0]
 
         def parse_fecha(fecha_str):
             try:
-                return date.strptime(fecha_str, "%Y-%m-%d").date()
+                return date.fromisoformat(str(fecha_str))
             except:
                 return None
 
-        st.write("---")
-        st.subheader(f"Editar gasto fijo")
-        with st.form("form_editar_gasto"):
-            mes_edit = st.text_input("Mes", value=gasto['Mes'])
-            concepto_edit = st.text_input("Concepto", value=gasto['Concepto'])
-            monto_edit = st.number_input("Monto ($)", min_value=0.0, step=0.01, value=gasto['Monto'], format="%.2f")
-            fecha_venc_edit = st.date_input("Fecha de vencimiento", value=parse_fecha(gasto['Fecha Vencimiento']))
-            fecha_pago_edit = st.date_input("Fecha de pago (opcional)", value=parse_fecha(gasto['Fecha Pago']))
-            submit_editar = st.form_submit_button("Guardar cambios")
-            if submit_editar:
+        with st.form("form_editar_eliminar_gasto"):
+            mes_edit = st.text_input("Mes", value=gasto_sel["Mes"])
+            concepto_edit = st.text_input("Concepto", value=gasto_sel["Concepto"])
+            monto_edit = st.number_input("Monto ($)", min_value=0.0, step=0.01, value=gasto_sel["Monto"], format="%.2f")
+            fecha_venc_edit = st.date_input("Fecha de vencimiento", value=parse_fecha(gasto_sel["Fecha Vencimiento"]))
+            fecha_pago_edit = st.date_input("Fecha de pago (opcional)", value=parse_fecha(gasto_sel["Fecha Pago"]))
+
+            col1, col2 = st.columns(2)
+            submit_edit = col1.form_submit_button("Guardar cambios")
+            submit_delete = col2.form_submit_button("Eliminar gasto")
+
+            if submit_edit:
                 if not mes_edit.strip() or not concepto_edit.strip() or monto_edit <= 0:
                     st.error("Por favor, completá Mes, Concepto y un monto mayor a 0.")
                 else:
-                    fecha_venc_edit_str = fecha_venc_edit.strftime("%Y-%m-%d") if fecha_venc_edit else None
-                    fecha_pago_edit_str = fecha_pago_edit.strftime("%Y-%m-%d") if fecha_pago_edit else None
-                    editar_gasto_fijo(gasto['ID'], mes_edit.strip(), concepto_edit.strip(), monto_edit, fecha_venc_edit_str, fecha_pago_edit_str)
+                    fecha_venc_str = fecha_venc_edit.strftime("%Y-%m-%d") if fecha_venc_edit else None
+                    fecha_pago_str = fecha_pago_edit.strftime("%Y-%m-%d") if fecha_pago_edit else None
+                    editar_gasto_fijo(gasto_sel["ID"], mes_edit.strip(), concepto_edit.strip(), monto_edit, fecha_venc_str, fecha_pago_str)
                     st.success(f"Gasto fijo '{concepto_edit.strip()}' actualizado.")
-                    st.session_state['gasto_editando'] = None
+                    st.session_state['gasto_seleccionado'] = None
                     st.rerun()
+
+            if submit_delete:
+                eliminar_gasto_fijo(gasto_sel["ID"])
+                st.success(f"Gasto fijo '{gasto_sel['Concepto']}' eliminado.")
+                st.session_state['gasto_seleccionado'] = None
+                st.rerun()
 else:
     st.info("No hay gastos fijos registrados.")
+
+#----------------------------------------------------------   ARRANCA SECCION INGRESOS   ----------------------------------------------------------
+
+st.write("---")
+st.header("INGRESOS")
+
+ingresos = get_ingresos()
+total_ingresos = sum(i[2] * i[3] for i in ingresos) if ingresos else 0
+st.metric("Total ingresos ($)", f"{total_ingresos:,.2f}")
+
+# --- FORMULARIO AGREGAR INGRESO ---
+with st.expander("Agregar nuevo ingreso"):
+    with st.form("form_agregar_ingreso"):
+        concepto = st.text_input("Concepto (ej: Venta producto X)")
+        cantidad = st.number_input("Cantidad", min_value=1, step=1)
+        precio_unitario = st.number_input("Precio unitario ($)", min_value=0.01, step=0.01, format="%.2f")
+        fecha = st.date_input("Fecha del ingreso", value=date.today())
+        submit_ingreso = st.form_submit_button("Agregar ingreso")
+        if submit_ingreso:
+            if not concepto.strip() or cantidad <= 0 or precio_unitario <= 0:
+                st.error("Por favor, completá todos los campos correctamente.")
+            else:
+                insertar_ingreso_manual(concepto.strip(), cantidad, precio_unitario, fecha.strftime("%Y-%m-%d"))
+                st.success(f"Ingreso '{concepto.strip()}' registrado correctamente.")
+                st.rerun()
+
+# --- MOSTRAR INGRESOS Y BOTONES ---
+if ingresos:
+    df_ingresos = pd.DataFrame(ingresos, columns=["ID", "Concepto", "Cantidad", "Precio Unitario", "Fecha"])
+    df_ingresos["Total"] = df_ingresos["Cantidad"] * df_ingresos["Precio Unitario"]
+    df_display = df_ingresos.copy()
+    df_display["Precio Unitario"] = df_display["Precio Unitario"].apply(lambda x: f"${x:,.2f}")
+    df_display["Total"] = df_display["Total"].apply(lambda x: f"${x:,.2f}")
+    st.dataframe(df_display[["Concepto", "Cantidad", "Precio Unitario", "Fecha", "Total"]], height=300)
+
+    if 'ingreso_seleccionado' not in st.session_state:
+        st.session_state['ingreso_seleccionado'] = None
+
+    with st.expander("Editar o eliminar un ingreso"):
+        opciones_ingresos = {f"{row['Concepto']} ({row['Fecha']})": row['ID'] for _, row in df_ingresos.iterrows()}
+        seleccionado = st.selectbox("Seleccioná un ingreso", [""] + list(opciones_ingresos.keys()))
+
+        if seleccionado:
+            st.session_state['ingreso_seleccionado'] = opciones_ingresos[seleccionado]
+
+    if st.session_state['ingreso_seleccionado']:
+        ingreso_sel = df_ingresos[df_ingresos["ID"] == st.session_state['ingreso_seleccionado']].iloc[0]
+
+        with st.form("form_editar_eliminar_ingreso"):
+            concepto_edit = st.text_input("Concepto", value=ingreso_sel["Concepto"])
+            cantidad_edit = st.number_input("Cantidad", min_value=1, step=1, value=ingreso_sel["Cantidad"])
+            precio_edit = st.number_input("Precio unitario ($)", min_value=0.01, step=0.01, value=ingreso_sel["Precio Unitario"], format="%.2f")
+            fecha_edit = st.date_input("Fecha del ingreso", value=date.fromisoformat(str(ingreso_sel["Fecha"])))
+
+            col1, col2 = st.columns(2)
+            submit_edit = col1.form_submit_button("Guardar cambios")
+            submit_delete = col2.form_submit_button("Eliminar ingreso")
+
+            if submit_edit:
+                if not concepto_edit.strip() or cantidad_edit <= 0 or precio_edit <= 0:
+                    st.error("Por favor, completá todos los campos correctamente.")
+                else:
+                    editar_ingreso(ingreso_sel["ID"], concepto_edit.strip(), cantidad_edit, precio_edit, fecha_edit.strftime("%Y-%m-%d"))
+                    st.success("Ingreso actualizado correctamente.")
+                    st.session_state['ingreso_seleccionado'] = None
+                    st.rerun()
+
+            if submit_delete:
+                eliminar_ingreso(ingreso_sel["ID"])
+                st.success("Ingreso eliminado correctamente.")
+                st.session_state['ingreso_seleccionado'] = None
+                st.rerun()
+else:
+    st.info("No hay ingresos registrados.")
