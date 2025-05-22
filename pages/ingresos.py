@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date
 
 #Import ingresos
-from db import (
+from db_modules.dbIngresos import (
     get_ingresos,
     editar_ingreso,
     eliminar_ingreso,

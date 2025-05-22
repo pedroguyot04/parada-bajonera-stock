@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date
 
 #Import costos
-from db import (
+from db_modules.dbCostos import (
     insertar_gasto_fijo,
     get_gastos_fijos,
     editar_gasto_fijo,

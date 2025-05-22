@@ -1,17 +1,18 @@
 # python3 -m streamlit run app.py
 
 import streamlit as st
+
 #Import productos
-from db import (
-    get_productos,
+from db_modules.dbStock import (
+    get_productos    
 )
 #Import costos
-from db import (
+from db_modules.dbCostos import (
     get_gastos_fijos,
 )
 
 #Import ingresos
-from db import (
+from db_modules.dbIngresos import (
     get_ingresos,
 )
 

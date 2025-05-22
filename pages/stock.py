@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date
 
 #Import productos
-from db import (
+from db_modules.dbStock import (
     get_productos,
     insertar_producto,
     eliminar_producto,

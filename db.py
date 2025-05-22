@@ -40,6 +40,19 @@ def create_tables():
             fecha DATE NOT NULL
         );
     """)
-    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS resumen_diario (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        fecha DATE NOT NULL,
+        turno TEXT NOT NULL,  -- 'mañana' o 'tarde'
+        producto_id INTEGER NOT NULL,
+        cantidad INTEGER NOT NULL,
+        total_recaudado REAL NOT NULL,
+        pago_efectivo REAL DEFAULT 0,
+        pago_mercadopago REAL DEFAULT 0,
+        pago_digital REAL DEFAULT 0,
+        FOREIGN KEY(producto_id) REFERENCES productos(id)
+        )
+    """)
     conn.commit()
     conn.close()
